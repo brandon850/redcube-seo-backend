@@ -21,13 +21,13 @@ app.use(express.json({ limit: '4mb' }));
 
 // ── ENV VARS (set in Railway / Render dashboard) ─────
 // SUPABASE_URL            = https://xxxx.supabase.co
-// SUPABASE_ANON_KEY       = your-anon-key
+// SUPABASE_SERVICE_KEY     = your-service-role-key  ← use this, NOT the anon key
 // RESEND_API_KEY          = re_xxxxxxxx
 // PUBLIC_RESULTS_BASE_URL = https://your-frontend.com/results
 // PORT                    = 3001  (auto-set by most platforms)
 // ─────────────────────────────────────────────────────
 
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 const resend   = new Resend(process.env.RESEND_API_KEY);
 
 // ══════════════════════════════════════════════════════
@@ -468,6 +468,7 @@ app.get('/api/report/:id', async (req, res) => {
 });
 
 app.get('/health', (_, res) => res.json({ ok: true }));
+app.get('/favicon.ico', (_, res) => res.status(204).end());
 
 // ══════════════════════════════════════════════════════
 //  EMAIL
