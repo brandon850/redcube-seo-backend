@@ -1159,7 +1159,7 @@ app.post('/admin/team/invite', requireAuth, async (req, res) => {
       to: email,
       subject: 'You\'ve been invited to RedCube SEO Platform',
       html: `<p>You've been added to the RedCube SEO Platform as ${role}.</p>
-             <p>Login at: ${process.env.PUBLIC_RESULTS_BASE_URL?.replace('/results','')}/login</p>
+             <p>Login at: ${process.env.PUBLIC_RESULTS_BASE_URL?.replace('/results','')}/dashboard</p>
              <p>Email: ${email}<br>Temporary password: <strong>${tempPass}</strong></p>
              <p>Please change your password after first login.</p>`
     });
