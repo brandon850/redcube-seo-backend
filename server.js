@@ -117,14 +117,14 @@ function extractInternalLinks($, pageUrl, origin) {
   return links;
 }
 
-async function crawlSite(startUrl) {
+async function crawlSite(startUrl, maxPages = MAX_PAGES) {
   const origin  = new URL(startUrl).origin;
   const start   = normalizeUrl(startUrl, startUrl);
   const queue   = [start];
   const visited = new Set();
   const pages   = [];
 
-  while (queue.length > 0 && pages.length < MAX_PAGES) {
+  while (queue.length > 0 && pages.length < maxPages) {
     const url = queue.shift();
     if (!url || visited.has(url)) continue;
     if (!isHtmlPage(url)) continue; // skip images, PDFs, assets
