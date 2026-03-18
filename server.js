@@ -550,11 +550,11 @@ async function sendResultsEmail({ email, name, url, auditResult, resultsUrl }) {
   <tr><td style="background:${BRAND_RED};height:3px;font-size:0;">&nbsp;</td></tr>
 
   <!-- HEADER -->
-  <tr><td style="background:${BRAND_BLACK};padding:28px 36px;border-left:1px solid ${BRAND_BORDER};border-right:1px solid ${BRAND_BORDER};">
+  <tr><td style="background:#111111;padding:28px 36px;border-left:1px solid ${BRAND_BORDER};border-right:1px solid ${BRAND_BORDER};" bgcolor="#111111">
     <table width="100%" cellpadding="0" cellspacing="0">
       <tr>
         <td>
-          <img src="${LOGO_URL}" alt="RedCube Creative" width="160" height="53" style="display:block;filter:brightness(0) invert(1);height:auto;max-width:160px;">
+          <table cellpadding="0" cellspacing="0" style="background:#111111;" bgcolor="#111111"><tr><td style="padding:0;background:#111111;" bgcolor="#111111"><img src="${LOGO_URL}" alt="RedCube Creative" width="160" style="display:block;height:auto;max-width:160px;border:0;"></td></tr></table>
         </td>
         <td style="text-align:right;">
           <span style="font-size:9px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:#555555;">SEO Audit Report</span>
@@ -615,11 +615,11 @@ async function sendResultsEmail({ email, name, url, auditResult, resultsUrl }) {
   </td></tr>
 
   <!-- FOOTER -->
-  <tr><td style="background:#0a0a0a;padding:20px 36px;border:1px solid ${BRAND_BORDER};border-top:none;">
+  <tr><td style="background:#0a0a0a;padding:20px 36px;border:1px solid ${BRAND_BORDER};border-top:none;" bgcolor="#0a0a0a">
     <table width="100%" cellpadding="0" cellspacing="0">
       <tr>
         <td>
-          <img src="${LOGO_URL}" alt="RedCube Creative" width="100" style="display:block;filter:brightness(0) invert(1);opacity:.4;height:auto;max-width:100px;">
+          <table cellpadding="0" cellspacing="0" style="background:#0a0a0a;" bgcolor="#0a0a0a"><tr><td style="padding:0;background:#0a0a0a;" bgcolor="#0a0a0a"><img src="${LOGO_URL}" alt="RedCube Creative" width="100" style="display:block;height:auto;max-width:100px;opacity:.5;border:0;"></td></tr></table>
         </td>
         <td style="text-align:right;vertical-align:middle;">
           <p style="margin:0;font-size:10px;color:#444444;line-height:1.7;">
