@@ -15,6 +15,9 @@ const { createClient } = require('@supabase/supabase-js');
 const { Resend }       = require('resend');
 const { v4: uuidv4 }   = require('uuid');
 
+const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
+
 const app = express();
 app.use(cors({ origin: '*' }));
 app.use(express.json({ limit: '4mb' }));
@@ -686,6 +689,489 @@ async function sendResultsEmail({ email, name, url, auditResult, resultsUrl }) {
     html
   });
 }
+
+const JWT_SECRET = process.env.JWT_SECRET || 'redcube-seo-secret-change-me';
+
+// ── ADMIN AUTH MIDDLEWARE ─────────────────────────
+function requireAuth(req, res, next) {
+  const header = req.headers['authorization'] || '';
+  const token  = header.replace('Bearer ', '').trim();
+  if (!token) return res.status(401).json({ error: 'Unauthorized' });
+  try {
+    req.user = jwt.verify(token, JWT_SECRET);
+    next();
+  } catch {
+    res.status(401).json({ error: 'Invalid or expired token' });
+  }
+}
+
+// ── POST /admin/login ─────────────────────────────
+app.post('/admin/login', async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
+
+  const { data: users, error } = await supabase
+    .from('admin_users')
+    .select('*')
+    .eq('email', email.toLowerCase().trim())
+    .limit(1);
+
+  if (error || !users?.length) return res.status(401).json({ error: 'Invalid credentials' });
+  const user = users[0];
+
+  const hash = crypto.createHash('sha256').update(password + user.salt).digest('hex');
+  if (hash !== user.password_hash) return res.status(401).json({ error: 'Invalid credentials' });
+
+  await supabase.from('admin_users').update({ last_login: new Date().toISOString() }).eq('id', user.id);
+
+  const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
+  res.json({ token, user: { id: user.id, email: user.email, name: user.name, role: user.role } });
+});
+
+// ── GET /admin/sites ──────────────────────────────
+app.get('/admin/sites', requireAuth, async (req, res) => {
+  const { data: sitesRaw, error } = await supabase
+    .from('managed_sites')
+    .select('*')
+    .order('created_at', { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+
+  // Attach aggregate counts
+  const sites = await Promise.all((sitesRaw || []).map(async site => {
+    const [{ count: openTasks }, { count: kwCount }, { count: draftCount }] = await Promise.all([
+      supabase.from('checklist_items').select('*', { count: 'exact', head: true }).eq('site_id', site.id).eq('done', false),
+      supabase.from('site_keywords').select('*', { count: 'exact', head: true }).eq('site_id', site.id),
+      supabase.from('content_drafts').select('*', { count: 'exact', head: true }).eq('site_id', site.id).neq('status', 'published'),
+    ]);
+    return { ...site, open_tasks: openTasks || 0, keyword_count: kwCount || 0, draft_count: draftCount || 0 };
+  }));
+  res.json({ sites });
+});
+
+// ── POST /admin/sites ─────────────────────────────
+app.post('/admin/sites', requireAuth, async (req, res) => {
+  const { name, url, platform, client_email, notes } = req.body;
+  if (!name || !url) return res.status(400).json({ error: 'name and url required' });
+  let cleanUrl = url.trim();
+  if (!/^https?:\/\//.test(cleanUrl)) cleanUrl = 'https://' + cleanUrl;
+  const domain = (() => { try { return new URL(cleanUrl).hostname.replace('www.', ''); } catch { return cleanUrl; } })();
+
+  const { data, error } = await supabase.from('managed_sites').insert({
+    name, url: cleanUrl, domain, platform, client_email, notes,
+    created_by: req.user.id,
+    created_at: new Date().toISOString()
+  }).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ site: data });
+});
+
+// ── DELETE /admin/sites/:id ───────────────────────
+app.delete('/admin/sites/:id', requireAuth, async (req, res) => {
+  const id = req.params.id;
+  // Cascade delete related data
+  await Promise.all([
+    supabase.from('site_pages').delete().eq('site_id', id),
+    supabase.from('checklist_items').delete().eq('site_id', id),
+    supabase.from('site_keywords').delete().eq('site_id', id),
+    supabase.from('content_drafts').delete().eq('site_id', id),
+    supabase.from('site_audits').delete().eq('site_id', id),
+  ]);
+  await supabase.from('managed_sites').delete().eq('id', id);
+  res.json({ success: true });
+});
+
+// ── GET /admin/sites/:id/pages ────────────────────
+app.get('/admin/sites/:id/pages', requireAuth, async (req, res) => {
+  const { data: pages, error } = await supabase
+    .from('site_pages')
+    .select('*')
+    .eq('site_id', req.params.id)
+    .order('score', { ascending: true });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ pages: pages || [] });
+});
+
+// ── GET /admin/sites/:id/checklist ───────────────
+app.get('/admin/sites/:id/checklist', requireAuth, async (req, res) => {
+  const { data: items, error } = await supabase
+    .from('checklist_items')
+    .select('*')
+    .eq('site_id', req.params.id)
+    .order('priority_order', { ascending: true });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ items: items || [] });
+});
+
+// ── PATCH /admin/checklist/:id ────────────────────
+app.patch('/admin/checklist/:id', requireAuth, async (req, res) => {
+  const { done } = req.body;
+  const updates = { done, completed_at: done ? new Date().toISOString() : null, completed_by: req.user.id };
+  const { data, error } = await supabase.from('checklist_items').update(updates).eq('id', req.params.id).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ item: data });
+});
+
+// ── POST /admin/sites/:id/audit ───────────────────
+app.post('/admin/sites/:id/audit', requireAuth, async (req, res) => {
+  const siteId = req.params.id;
+  const { data: site, error: siteErr } = await supabase.from('managed_sites').select('*').eq('id', siteId).single();
+  if (siteErr || !site) return res.status(404).json({ error: 'Site not found' });
+
+  try {
+    console.log(`[admin-audit] Starting full crawl of ${site.url}`);
+
+    // Full crawl — up to 100 pages for managed sites
+    const ADMIN_MAX_PAGES = 100;
+    const [pages, aux] = await Promise.all([
+      crawlSite(site.url, ADMIN_MAX_PAGES),
+      checkAuxFiles(site.url)
+    ]);
+    console.log(`[admin-audit] Crawled ${pages.length} pages`);
+
+    const result = scoreSite(pages, aux, site.url);
+
+    // Store audit record
+    const { data: audit } = await supabase.from('site_audits').insert({
+      site_id: siteId,
+      grade: result.grade,
+      overall_score: result.overallScore,
+      pages_crawled: pages.length,
+      report_data: result,
+      crawled_by: req.user.id,
+      created_at: new Date().toISOString()
+    }).select().single();
+
+    // Upsert individual pages
+    const pageInserts = pages.filter(p => p.ok && p.metrics).map(p => {
+      const m = p.metrics;
+      const pageScore = scoreOnePage(m);
+      const pageType  = detectPageType(p.url, m);
+      return {
+        site_id:     siteId,
+        url:         p.url,
+        title:       m.title || '',
+        score:       pageScore,
+        type:        pageType,
+        word_count:  m.wordCount || 0,
+        h1_text:     m.h1Text || '',
+        has_meta:    m.metaDescLen > 20,
+        has_h1:      m.h1Count === 1,
+        is_https:    m.isHttps,
+        is_mobile:   m.isMobileOptimized,
+        issues:      getPageIssues(m),
+        last_crawled: new Date().toISOString()
+      };
+    });
+
+    // Delete old pages for this site then insert fresh
+    await supabase.from('site_pages').delete().eq('site_id', siteId);
+    if (pageInserts.length) {
+      await supabase.from('site_pages').insert(pageInserts);
+    }
+
+    // Regenerate checklist
+    await supabase.from('checklist_items').delete().eq('site_id', siteId).eq('auto_generated', true);
+    const checklistItems = generateChecklist(pages, aux, result, siteId);
+    if (checklistItems.length) {
+      await supabase.from('checklist_items').insert(checklistItems);
+    }
+
+    // Update site record
+    await supabase.from('managed_sites').update({
+      last_audit:    new Date().toISOString(),
+      last_grade:    result.grade,
+      last_score:    result.overallScore,
+      pages_crawled: pages.length,
+    }).eq('id', siteId);
+
+    res.json({ success: true, grade: result.grade, score: result.overallScore, pages_crawled: pages.length });
+  } catch (err) {
+    console.error('[admin-audit]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── PAGE SCORING (per-page score, stricter than site score) ──
+function scoreOnePage(m) {
+  let s = 100;
+  if (!m.title || m.titleLength < 5)   s -= 20;
+  else if (m.titleLength < 30)          s -= 8;
+  else if (m.titleLength > 60)          s -= 5;
+  if (m.metaDescLen < 20)               s -= 15;
+  else if (m.metaDescLen > 160)         s -= 5;
+  if (m.h1Count === 0)                  s -= 18;
+  else if (m.h1Count > 1)              s -= 8;
+  if (!m.isMobileOptimized)            s -= 15;
+  if (!m.isHttps)                      s -= 20;
+  if (m.wordCount < 200)               s -= 12;
+  else if (m.wordCount < 400)          s -= 5;
+  if (m.imagesWithoutAlt > 0)          s -= Math.min(10, m.imagesWithoutAlt * 3);
+  if (!m.canonical)                    s -= 5;
+  if (m.hasNoindex)                    s -= 30;
+  return Math.max(0, Math.min(100, s));
+}
+
+function detectPageType(url, m) {
+  const path = url.toLowerCase();
+  if (/\/blog\/|\/post\/|\/article\/|\/news\/|\d{4}\/\d{2}\//.test(path)) return 'post';
+  if (/\/landing\/|\/lp\/|-lp\b|\/campaign\//.test(path)) return 'landing';
+  return 'page';
+}
+
+function getPageIssues(m) {
+  const issues = [];
+  if (!m.title || m.titleLength < 5)  issues.push('Missing title tag');
+  if (m.titleLength > 60)             issues.push('Title too long');
+  if (m.metaDescLen < 20)             issues.push('Missing meta description');
+  if (m.h1Count === 0)                issues.push('No H1 heading');
+  if (m.h1Count > 1)                  issues.push('Multiple H1 tags');
+  if (!m.isMobileOptimized)           issues.push('Not mobile optimized');
+  if (!m.isHttps)                     issues.push('Not HTTPS');
+  if (m.wordCount < 200)              issues.push('Thin content');
+  if (m.imagesWithoutAlt > 0)         issues.push(`${m.imagesWithoutAlt} images missing alt text`);
+  if (m.hasNoindex)                   issues.push('Noindex tag present');
+  if (!m.canonical)                   issues.push('No canonical tag');
+  return issues;
+}
+
+// ── CHECKLIST GENERATOR ───────────────────────────
+function generateChecklist(pages, aux, result, siteId) {
+  const items = [];
+  let order = 0;
+  const add = (text, category, priority, pageUrl = null) => {
+    items.push({
+      site_id: siteId,
+      text,
+      category,
+      priority,
+      priority_order: order++,
+      done: false,
+      auto_generated: true,
+      page_url: pageUrl,
+      created_at: new Date().toISOString()
+    });
+  };
+
+  const all = pages.filter(p => p.ok && p.metrics).map(p => ({ url: p.url, m: p.metrics }));
+
+  // Findability
+  if (!aux.hasSitemap)   add('Create and submit an XML sitemap to Google Search Console', 'Findability', 'high');
+  if (!aux.hasRobotsTxt) add('Add a robots.txt file to guide Google\'s crawlers', 'Findability', 'high');
+
+  all.filter(p => !p.m.title || p.m.titleLength < 5).forEach(p =>
+    add(`Add a title tag to this page`, 'Findability', 'high', p.url));
+  all.filter(p => p.m.titleLength > 60).forEach(p =>
+    add(`Shorten title tag to under 60 characters (currently ${p.m.titleLength})`, 'Findability', 'med', p.url));
+  all.filter(p => p.m.titleLength > 0 && p.m.titleLength < 30).forEach(p =>
+    add(`Expand title tag to at least 30 characters (currently ${p.m.titleLength})`, 'Findability', 'med', p.url));
+  all.filter(p => p.m.metaDescLen < 20).forEach(p =>
+    add(`Write a meta description (150–160 chars) for this page`, 'Findability', 'high', p.url));
+  all.filter(p => p.m.metaDescLen > 160).forEach(p =>
+    add(`Shorten meta description to 160 chars or less (currently ${p.m.metaDescLen})`, 'Findability', 'low', p.url));
+
+  // Content
+  all.filter(p => p.m.h1Count === 0).forEach(p =>
+    add(`Add a single H1 heading to this page`, 'Content', 'high', p.url));
+  all.filter(p => p.m.h1Count > 1).forEach(p =>
+    add(`Remove extra H1 tags — only one H1 allowed per page (found ${p.m.h1Count})`, 'Content', 'med', p.url));
+  all.filter(p => p.m.wordCount < 300).forEach(p =>
+    add(`Add more content — page has only ${p.m.wordCount} words, aim for 500+`, 'Content', 'high', p.url));
+  all.filter(p => p.m.imagesWithoutAlt > 0).forEach(p =>
+    add(`Add alt text to ${p.m.imagesWithoutAlt} image(s) on this page`, 'Content', 'med', p.url));
+  all.filter(p => !p.m.hasStructuredData).slice(0, 5).forEach(p =>
+    add(`Add Schema.org structured data markup to this page`, 'Content', 'med', p.url));
+
+  // Technical
+  if (!result.categories.find(c => c.name === 'Trust & Security')?.score >= 90) {
+    all.filter(p => !p.m.isHttps).forEach(p =>
+      add(`Migrate this page to HTTPS`, 'Technical', 'high', p.url));
+    all.filter(p => !p.m.canonical).slice(0, 10).forEach(p =>
+      add(`Add a canonical tag to prevent duplicate content issues`, 'Technical', 'med', p.url));
+    all.filter(p => !p.m.ogImage).slice(0, 5).forEach(p =>
+      add(`Add an Open Graph image tag for better social sharing`, 'Technical', 'low', p.url));
+  }
+
+  // Mobile
+  all.filter(p => !p.m.isMobileOptimized).forEach(p =>
+    add(`Add mobile viewport meta tag to this page`, 'Mobile', 'high', p.url));
+
+  // Speed
+  all.filter(p => (p.m.htmlSize || 0) > 300000).forEach(p =>
+    add(`Reduce page weight — HTML is ${Math.round(p.m.htmlSize/1024)}KB, optimize images and minify code`, 'Speed', 'med', p.url));
+  if (!all.some(p => p.m.hasGoogleAnalytics))
+    add('Install Google Analytics or Google Tag Manager to track visitors', 'Speed', 'high');
+
+  return items.slice(0, 100); // cap at 100 auto-generated items
+}
+
+// ── GET/POST /admin/sites/:id/keywords ───────────
+app.get('/admin/sites/:id/keywords', requireAuth, async (req, res) => {
+  const { data, error } = await supabase.from('site_keywords')
+    .select('*').eq('site_id', req.params.id).order('created_at', { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ keywords: data || [] });
+});
+
+app.post('/admin/sites/:id/keywords', requireAuth, async (req, res) => {
+  const { keyword, page_url } = req.body;
+  if (!keyword) return res.status(400).json({ error: 'keyword required' });
+  const { data, error } = await supabase.from('site_keywords').insert({
+    site_id: req.params.id, keyword, page_url: page_url || null,
+    created_at: new Date().toISOString()
+  }).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ keyword: data });
+});
+
+app.get('/admin/keywords', requireAuth, async (req, res) => {
+  const { data, error } = await supabase.from('site_keywords')
+    .select('*').order('created_at', { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ keywords: data || [] });
+});
+
+app.delete('/admin/keywords/:id', requireAuth, async (req, res) => {
+  await supabase.from('site_keywords').delete().eq('id', req.params.id);
+  res.json({ success: true });
+});
+
+// ── GET/POST /admin/sites/:id/content ─────────────
+app.get('/admin/sites/:id/content', requireAuth, async (req, res) => {
+  const { data, error } = await supabase.from('content_drafts')
+    .select('*').eq('site_id', req.params.id).order('updated_at', { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ drafts: data || [] });
+});
+
+app.get('/admin/content', requireAuth, async (req, res) => {
+  const { data, error } = await supabase.from('content_drafts')
+    .select('*').order('updated_at', { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ drafts: data || [] });
+});
+
+app.post('/admin/content', requireAuth, async (req, res) => {
+  const { site_id, type, title, target_keyword, meta_description, body, status } = req.body;
+  const wordCount = (body || '').split(/\s+/).filter(w => w.length > 2).length;
+  const { data, error } = await supabase.from('content_drafts').insert({
+    site_id, type, title, target_keyword, meta_description, body, status: status || 'draft',
+    word_count: wordCount, created_by: req.user.id,
+    created_at: new Date().toISOString(), updated_at: new Date().toISOString()
+  }).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ draft: data });
+});
+
+app.patch('/admin/content/:id', requireAuth, async (req, res) => {
+  const { title, target_keyword, meta_description, body, status, type, site_id } = req.body;
+  const wordCount = (body || '').split(/\s+/).filter(w => w.length > 2).length;
+  const { data, error } = await supabase.from('content_drafts').update({
+    title, target_keyword, meta_description, body, status, type, site_id,
+    word_count: wordCount, updated_at: new Date().toISOString()
+  }).eq('id', req.params.id).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ draft: data });
+});
+
+// ── REPORTS ───────────────────────────────────────
+app.get('/admin/reports', requireAuth, async (req, res) => {
+  const { data, error } = await supabase.from('client_reports')
+    .select('*').order('created_at', { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ reports: data || [] });
+});
+
+app.get('/admin/sites/:id/reports', requireAuth, async (req, res) => {
+  const { data, error } = await supabase.from('client_reports')
+    .select('*').eq('site_id', req.params.id).order('created_at', { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ reports: data || [] });
+});
+
+app.post('/admin/sites/:id/reports', requireAuth, async (req, res) => {
+  const siteId = req.params.id;
+  const { data: site } = await supabase.from('managed_sites').select('*').eq('id', siteId).single();
+  if (!site) return res.status(404).json({ error: 'Site not found' });
+
+  const { data: auditData } = await supabase.from('site_audits')
+    .select('*').eq('site_id', siteId).order('created_at', { ascending: false }).limit(1).single();
+
+  const reportId = require('uuid').v4();
+  const publicUrl = `${process.env.PUBLIC_RESULTS_BASE_URL}/${reportId}`;
+
+  // Store a report record — the public results page will fetch /api/report/:id
+  await supabase.from('client_reports').insert({
+    id: reportId,
+    site_id: siteId,
+    site_name: site.name,
+    grade: site.last_grade,
+    score: site.last_score,
+    pages_crawled: site.pages_crawled,
+    public_url: publicUrl,
+    report_data: auditData?.report_data || null,
+    created_by: req.user.id,
+    created_at: new Date().toISOString()
+  });
+
+  // Also store in seo_reports so the existing public viewer works
+  await supabase.from('seo_reports').insert({
+    id: reportId,
+    email: site.client_email || 'noreply@redcube.co',
+    url: site.url,
+    domain: site.domain,
+    grade: site.last_grade,
+    overall_score: site.last_score,
+    pages_scanned: site.pages_crawled,
+    report_data: auditData?.report_data || null,
+    created_at: new Date().toISOString()
+  });
+
+  res.json({ success: true, public_url: publicUrl, reportId });
+});
+
+// ── TEAM ──────────────────────────────────────────
+app.get('/admin/team', requireAuth, async (req, res) => {
+  const { data, error } = await supabase.from('admin_users').select('id,name,email,role,last_login,created_at');
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ members: data || [] });
+});
+
+app.post('/admin/team/invite', requireAuth, async (req, res) => {
+  const { name, email, role } = req.body;
+  if (!email) return res.status(400).json({ error: 'email required' });
+
+  // Generate a random temp password
+  const tempPass = crypto.randomBytes(8).toString('hex');
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.createHash('sha256').update(tempPass + salt).digest('hex');
+
+  const { data, error } = await supabase.from('admin_users').insert({
+    name, email: email.toLowerCase(), role: role || 'editor',
+    password_hash: hash, salt,
+    created_at: new Date().toISOString()
+  }).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+
+  // Send invite email
+  try {
+    await resend.emails.send({
+      from: 'RedCube SEO <hello@redcube.co>',
+      to: email,
+      subject: 'You\'ve been invited to RedCube SEO Platform',
+      html: `<p>You've been added to the RedCube SEO Platform as ${role}.</p>
+             <p>Login at: ${process.env.PUBLIC_RESULTS_BASE_URL?.replace('/results','')}/login</p>
+             <p>Email: ${email}<br>Temporary password: <strong>${tempPass}</strong></p>
+             <p>Please change your password after first login.</p>`
+    });
+  } catch(e) { console.warn('Invite email failed:', e.message); }
+
+  res.json({ success: true, member: data });
+});
+
+app.delete('/admin/team/:id', requireAuth, async (req, res) => {
+  await supabase.from('admin_users').delete().eq('id', req.params.id);
+  res.json({ success: true });
+});
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`✅  RedCube SEO API on :${PORT}`));
