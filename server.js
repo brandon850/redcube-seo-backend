@@ -479,7 +479,7 @@ async function sendResultsEmail({ email, name, url, auditResult, resultsUrl }) {
   const BRAND_DARK  = '#1a1a1a';
   const BRAND_CARD  = '#222222';
   const BRAND_BORDER= '#2e2e2e';
-  const LOGO_URL    = 'https://redcube.co/wp-content/uploads/2025/08/RedcubeLogoFinal_Signature-1030x340.png';
+  const LOGO_URL    = 'https://redcube.co/wp-content/uploads/2019/10/RedCubeLogo_Website-1030x327.png';
 
   const gradeColor = {
     'A+':'#22c55e','A':'#22c55e','B+':'#84cc16','B':'#84cc16',
