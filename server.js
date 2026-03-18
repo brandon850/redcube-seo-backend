@@ -474,58 +474,172 @@ app.get('/favicon.ico', (_, res) => res.status(204).end());
 //  EMAIL
 // ══════════════════════════════════════════════════════
 async function sendResultsEmail({ email, name, url, auditResult, resultsUrl }) {
-  const gradeColor = { 'A+': '#15803d','A':'#16a34a','B+':'#4f8a10','B':'#65a30d','C+':'#d97706','C':'#ea580c','D':'#dc2626','F':'#991b1b' }[auditResult.grade] || '#6b7280';
+  const BRAND_RED   = '#CC0000';
+  const BRAND_BLACK = '#111111';
+  const BRAND_DARK  = '#1a1a1a';
+  const BRAND_CARD  = '#222222';
+  const BRAND_BORDER= '#2e2e2e';
+  const LOGO_URL    = 'https://redcube.co/wp-content/uploads/2025/08/RedcubeLogoFinal_Signature-1030x340.png';
+
+  const gradeColor = {
+    'A+':'#22c55e','A':'#22c55e','B+':'#84cc16','B':'#84cc16',
+    'C+':'#f59e0b','C':'#f97316','D':'#ef4444','F':'#dc2626'
+  }[auditResult.grade] || '#888888';
+
+  const statusColor = {
+    'Great': '#22c55e', 'Good': '#84cc16', 'Okay': '#f59e0b',
+    'Needs Work': '#f97316', 'Poor': '#ef4444'
+  };
+  const statusBg = {
+    'Great': 'rgba(34,197,94,.12)', 'Good': 'rgba(132,204,22,.12)',
+    'Okay': 'rgba(245,158,11,.12)', 'Needs Work': 'rgba(249,115,22,.12)',
+    'Poor': 'rgba(239,68,68,.12)'
+  };
+
   const greeting = name ? `Hi ${name.split(' ')[0]},` : 'Hi there,';
 
-  const catRows = (auditResult.categories || []).map(c => `
+  const catRows = (auditResult.categories || []).map(c => {
+    const sc = statusColor[c.status] || '#888';
+    const sb = statusBg[c.status]   || 'rgba(136,136,136,.12)';
+    const barW = c.score + '%';
+    const barC = c.score >= 85 ? '#22c55e' : c.score >= 70 ? '#84cc16' : c.score >= 55 ? '#f59e0b' : c.score >= 40 ? '#f97316' : '#ef4444';
+    return `
     <tr>
-      <td style="padding:10px 0;border-bottom:1px solid #f0f0f0;font-size:14px;">
-        ${c.icon}&nbsp;&nbsp;<strong>${c.name}</strong>
+      <td colspan="2" style="padding:0;border-bottom:1px solid #2e2e2e;">
+        <table width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td style="padding:14px 0 8px;font-family:Arial,sans-serif;">
+              <span style="font-size:16px;">${c.icon}</span>
+              <span style="font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#ffffff;margin-left:8px;">${c.name}</span>
+              <span style="display:inline-block;font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:2px 8px;margin-left:8px;background:${sb};color:${sc};border:1px solid ${sc}33;">${c.status}</span>
+            </td>
+            <td style="padding:14px 0 8px;text-align:right;font-family:Arial,sans-serif;">
+              <span style="font-size:15px;font-weight:900;color:${barC};">${c.score}/100</span>
+            </td>
+          </tr>
+          <tr>
+            <td colspan="2" style="padding:0 0 14px;">
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="background:#2e2e2e;height:3px;padding:0;">
+                    <div style="background:${barC};height:3px;width:${barW};font-size:0;">&nbsp;</div>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
       </td>
-      <td style="text-align:right;padding:10px 0;border-bottom:1px solid #f0f0f0;white-space:nowrap;">
-        <strong style="color:#1a1a2e;">${c.score}/100</strong>&nbsp;
-        <span style="background:#f3f4f6;border-radius:100px;padding:2px 10px;font-size:11px;color:#6b7280;">${c.status}</span>
-      </td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 
-  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#f0f2f5;font-family:'Helvetica Neue',Arial,sans-serif;">
-<table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 16px;"><tr><td align="center">
-<table width="100%" cellpadding="0" cellspacing="0" style="max-width:580px;">
-  <tr><td style="background:#1a1a2e;border-radius:16px 16px 0 0;padding:28px;text-align:center;">
-    <div style="font-size:22px;font-weight:800;color:#fff;">red<span style="color:#E63946;">cube</span></div>
-    <div style="color:rgba(255,255,255,0.4);font-size:11px;margin-top:4px;letter-spacing:.1em;text-transform:uppercase;">Free SEO Audit Report</div>
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Your SEO Audit Report — RedCube</title>
+</head>
+<body style="margin:0;padding:0;background:#0a0a0a;font-family:Arial,Helvetica,sans-serif;">
+
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#0a0a0a;padding:32px 16px;">
+<tr><td align="center">
+<table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;">
+
+  <!-- TOP ACCENT BAR -->
+  <tr><td style="background:${BRAND_RED};height:3px;font-size:0;">&nbsp;</td></tr>
+
+  <!-- HEADER -->
+  <tr><td style="background:${BRAND_BLACK};padding:28px 36px;border-left:1px solid ${BRAND_BORDER};border-right:1px solid ${BRAND_BORDER};">
+    <table width="100%" cellpadding="0" cellspacing="0">
+      <tr>
+        <td>
+          <img src="${LOGO_URL}" alt="RedCube Creative" width="160" height="53" style="display:block;filter:brightness(0) invert(1);height:auto;max-width:160px;">
+        </td>
+        <td style="text-align:right;">
+          <span style="font-size:9px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:#555555;">SEO Audit Report</span>
+        </td>
+      </tr>
+    </table>
   </td></tr>
-  <tr><td style="background:#16213e;padding:32px;text-align:center;">
-    <div style="color:rgba(255,255,255,0.4);font-size:11px;text-transform:uppercase;letter-spacing:.1em;margin-bottom:16px;">${auditResult.domain} · ${auditResult.pagesScanned} pages scanned</div>
-    <div style="display:inline-block;border:2px solid rgba(255,255,255,0.12);border-radius:16px;padding:20px 52px;background:rgba(255,255,255,0.04);">
-      <div style="font-size:64px;font-weight:800;line-height:1;color:${gradeColor};">${auditResult.grade}</div>
-      <div style="color:rgba(255,255,255,0.45);font-size:15px;margin-top:8px;">${auditResult.overallScore} / 100</div>
-    </div>
-    <p style="color:rgba(255,255,255,0.6);max-width:420px;margin:20px auto 0;line-height:1.7;font-size:14px;">${auditResult.gradeSummary}</p>
+
+  <!-- GRADE HERO -->
+  <tr><td style="background:${BRAND_DARK};padding:44px 36px;text-align:center;border-left:1px solid ${BRAND_BORDER};border-right:1px solid ${BRAND_BORDER};border-bottom:1px solid ${BRAND_BORDER};">
+    <p style="margin:0 0 20px;font-size:10px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:#555555;">${auditResult.domain} &nbsp;·&nbsp; ${auditResult.pagesScanned} pages scanned</p>
+    <table cellpadding="0" cellspacing="0" align="center" style="margin:0 auto 20px;">
+      <tr><td style="border:2px solid #2e2e2e;border-radius:50%;width:150px;height:150px;text-align:center;vertical-align:middle;">
+        <div style="font-size:72px;font-weight:900;line-height:1;color:${gradeColor};font-family:Arial,sans-serif;">${auditResult.grade}</div>
+        <div style="font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#555555;margin-top:4px;">${auditResult.overallScore} / 100</div>
+      </td></tr>
+    </table>
+    <p style="margin:0 auto;max-width:420px;font-size:14px;color:#888888;line-height:1.75;">${auditResult.gradeSummary}</p>
   </td></tr>
-  <tr><td style="background:#fff;padding:32px;">
-    <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 20px;">${greeting} Your free SEO audit for <strong>${url}</strong> is complete — here's how each area scored:</p>
-    <table width="100%" cellpadding="0" cellspacing="0">${catRows}</table>
-    <div style="text-align:center;margin:36px 0 28px;">
-      <a href="${resultsUrl}" style="display:inline-block;background:#E63946;color:#fff;padding:16px 36px;border-radius:10px;font-weight:700;font-size:16px;text-decoration:none;">View Your Full Report →</a>
-      <div style="color:#9ca3af;font-size:12px;margin-top:10px;">Your report is saved at this link and won't expire.</div>
-    </div>
-    <div style="background:#f8f8fb;border-radius:12px;padding:24px;border-left:4px solid #E63946;">
-      <p style="color:#1a1a2e;font-size:15px;font-weight:700;margin:0 0 8px;">Want help fixing these issues?</p>
-      <p style="color:#6b7280;font-size:14px;line-height:1.7;margin:0 0 16px;">RedCube specializes in helping local businesses rank higher on Google and turn visitors into paying customers. Schedule a free 15-minute call and let's review your results together.</p>
-      <a href="https://redcube.co/contact" style="display:inline-block;background:#1a1a2e;color:#fff;padding:11px 22px;border-radius:8px;font-weight:600;font-size:13px;text-decoration:none;">Schedule a Free Consult →</a>
-    </div>
+
+  <!-- BODY -->
+  <tr><td style="background:${BRAND_CARD};padding:36px;border-left:1px solid ${BRAND_BORDER};border-right:1px solid ${BRAND_BORDER};border-bottom:1px solid ${BRAND_BORDER};">
+
+    <p style="margin:0 0 6px;font-size:14px;color:#cccccc;line-height:1.7;">${greeting}</p>
+    <p style="margin:0 0 28px;font-size:14px;color:#888888;line-height:1.75;">Your free SEO audit for <strong style="color:#cccccc;">${url}</strong> is complete. We scanned <strong style="color:#cccccc;">${auditResult.pagesScanned} pages</strong> and here's how each area performed:</p>
+
+    <!-- CATEGORY SCORES -->
+    <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:32px;">
+      <tr><td colspan="2" style="padding:0 0 12px;">
+        <span style="font-size:9px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:#555555;border-bottom:1px solid ${BRAND_RED};padding-bottom:6px;display:inline-block;">Score Breakdown</span>
+      </td></tr>
+      ${catRows}
+    </table>
+
+    <!-- CTA BUTTON -->
+    <table cellpadding="0" cellspacing="0" align="center" style="margin:0 auto 28px;">
+      <tr><td style="background:${BRAND_RED};border-radius:3px;">
+        <a href="${resultsUrl}" style="display:inline-block;padding:16px 40px;font-family:Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#ffffff;text-decoration:none;">View Your Full Report →</a>
+      </td></tr>
+    </table>
+    <p style="text-align:center;margin:0 0 32px;font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#555555;">Your report is saved at this link and will not expire</p>
+
+    <!-- CONSULT CTA -->
+    <table width="100%" cellpadding="0" cellspacing="0">
+      <tr><td style="background:${BRAND_BLACK};border-top:3px solid ${BRAND_RED};padding:28px;border-radius:0 0 3px 3px;">
+        <p style="margin:0 0 4px;font-size:9px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:${BRAND_RED};">Next Step</p>
+        <p style="margin:0 0 12px;font-size:16px;font-weight:900;letter-spacing:-.01em;text-transform:uppercase;color:#ffffff;line-height:1.2;">Let's Turn That Grade Into an A</p>
+        <p style="margin:0 0 20px;font-size:13px;color:#888888;line-height:1.75;">RedCube specializes in helping local businesses rank higher on Google and turn visitors into customers. Schedule a free 15-minute call and let's review your results together.</p>
+        <table cellpadding="0" cellspacing="0">
+          <tr><td style="background:${BRAND_RED};border-radius:3px;">
+            <a href="https://redcube.co/contact" style="display:inline-block;padding:12px 24px;font-family:Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#ffffff;text-decoration:none;">Schedule a Free Consult →</a>
+          </td></tr>
+        </table>
+        <p style="margin:12px 0 0;font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#444444;">(678) 877-0609 &nbsp;·&nbsp; No commitment required</p>
+      </td></tr>
+    </table>
+
   </td></tr>
-  <tr><td style="background:#f0f2f5;border-radius:0 0 16px 16px;padding:20px;text-align:center;">
-    <p style="color:#9ca3af;font-size:12px;margin:0;line-height:1.7;">
-      Report generated by <a href="https://redcube.co" style="color:#E63946;text-decoration:none;">RedCube</a> at your request.<br>
-      No spam — ever. Questions? Email us at <a href="mailto:hello@redcube.co" style="color:#9ca3af;">hello@redcube.co</a>
-    </p>
+
+  <!-- FOOTER -->
+  <tr><td style="background:#0a0a0a;padding:20px 36px;border:1px solid ${BRAND_BORDER};border-top:none;">
+    <table width="100%" cellpadding="0" cellspacing="0">
+      <tr>
+        <td>
+          <img src="${LOGO_URL}" alt="RedCube Creative" width="100" style="display:block;filter:brightness(0) invert(1);opacity:.4;height:auto;max-width:100px;">
+        </td>
+        <td style="text-align:right;vertical-align:middle;">
+          <p style="margin:0;font-size:10px;color:#444444;line-height:1.7;">
+            Report generated at your request.<br>
+            No spam — ever. &nbsp;<a href="mailto:hello@redcube.co" style="color:#555555;text-decoration:none;">hello@redcube.co</a>
+          </p>
+        </td>
+      </tr>
+    </table>
   </td></tr>
+
+  <!-- BOTTOM ACCENT BAR -->
+  <tr><td style="background:${BRAND_RED};height:3px;font-size:0;">&nbsp;</td></tr>
+
 </table>
-</td></tr></table>
-</body></html>`;
+</td></tr>
+</table>
+
+</body>
+</html>`;
 
   await resend.emails.send({
     from: 'RedCube SEO <hello@redcube.co>',
