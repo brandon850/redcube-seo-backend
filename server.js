@@ -67,13 +67,49 @@ function normalizeUrl(href, base) {
   } catch { return null; }
 }
 
+// File extensions that are never HTML pages — skip them entirely
+const NON_PAGE_EXTENSIONS = new Set([
+  'jpg','jpeg','png','gif','webp','svg','ico','bmp','tiff','avif',
+  'pdf','doc','docx','xls','xlsx','ppt','pptx','csv','txt','rtf',
+  'zip','gz','tar','rar','7z',
+  'mp4','mov','avi','wmv','webm','mkv','m4v','flv',
+  'mp3','wav','ogg','aac','flac','m4a',
+  'woff','woff2','ttf','eot','otf',
+  'js','css','json','xml','rss','atom',
+  'map','ts','jsx','tsx',
+]);
+
+function isHtmlPage(url) {
+  try {
+    const pathname = new URL(url).pathname.toLowerCase();
+    // Strip query string for extension check
+    const clean = pathname.split('?')[0];
+    const lastSegment = clean.split('/').pop();
+    const dot = lastSegment.lastIndexOf('.');
+    if (dot === -1) return true; // no extension = likely a page (e.g. /about)
+    const ext = lastSegment.slice(dot + 1);
+    return !NON_PAGE_EXTENSIONS.has(ext);
+  } catch { return false; }
+}
+
 function extractInternalLinks($, pageUrl, origin) {
   const links = new Set();
   $('a[href]').each((_, el) => {
     const href = $(el).attr('href') || '';
-    if (!href || href.startsWith('mailto:') || href.startsWith('tel:') || href.startsWith('javascript:')) return;
+    // Skip non-navigational hrefs
+    if (!href
+      || href.startsWith('mailto:')
+      || href.startsWith('tel:')
+      || href.startsWith('javascript:')
+      || href.startsWith('#')
+      || href.startsWith('data:')
+      || href.startsWith('ftp:')
+    ) return;
     const normalized = normalizeUrl(href, pageUrl);
-    if (normalized && normalized.startsWith(origin)) links.add(normalized);
+    // Must be same origin AND must look like an HTML page
+    if (normalized && normalized.startsWith(origin) && isHtmlPage(normalized)) {
+      links.add(normalized);
+    }
   });
   return links;
 }
@@ -88,6 +124,7 @@ async function crawlSite(startUrl) {
   while (queue.length > 0 && pages.length < MAX_PAGES) {
     const url = queue.shift();
     if (!url || visited.has(url)) continue;
+    if (!isHtmlPage(url)) continue; // skip images, PDFs, assets
     visited.add(url);
 
     const { html, status, finalUrl, ok, error } = await fetchPage(url);
@@ -479,7 +516,7 @@ async function sendResultsEmail({ email, name, url, auditResult, resultsUrl }) {
   const BRAND_DARK  = '#1a1a1a';
   const BRAND_CARD  = '#222222';
   const BRAND_BORDER= '#2e2e2e';
-  const LOGO_URL    = 'https://redcube.co/wp-content/uploads/2019/10/RedCubeLogo_Website-1030x327.png';
+  const LOGO_URL    = 'https://redcube.co/wp-content/uploads/2025/08/RedcubeLogoFinal_Signature-1030x340.png';
 
   const gradeColor = {
     'A+':'#22c55e','A':'#22c55e','B+':'#84cc16','B':'#84cc16',
