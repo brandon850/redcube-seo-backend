@@ -4,6 +4,10 @@
 //  Deploy: Railway / Render / Fly.io (all free tiers work)
 // ════════════════════════════════════════════════════
 
+// node-fetch v2 is CommonJS-compatible and avoids Node 18 undici/File issues
+const fetch   = require('node-fetch');
+global.fetch  = fetch; // polyfill for supabase-js which also calls fetch internally
+
 const express = require('express');
 const cors    = require('cors');
 const cheerio = require('cheerio');
