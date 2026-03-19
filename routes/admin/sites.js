@@ -104,7 +104,7 @@ router.post('/:id/audit', async (req, res) => {
       url:          p.url,
       title:        p.metrics.title || '',
       score:        scoreOnePage(p.metrics),
-      type:         detectPageType(p.url),
+      type:         detectPageType(p.url, p.metrics),
       word_count:   p.metrics.wordCount || 0,
       h1_text:      p.metrics.h1Text || '',
       has_meta:     p.metrics.metaDescLen > 20,
@@ -176,6 +176,21 @@ router.patch('/:id/settings', async (req, res) => {
     .update(updates).eq('id', req.params.id).select().single();
   if (error) return res.status(500).json({ error: error.message });
   res.json({ site: data });
+});
+
+// PATCH /admin/sites/:siteId/pages/:pageId — manual overrides
+router.patch('/:siteId/pages/:pageId', async (req, res) => {
+  const { type } = req.body;
+  const validTypes = ['page', 'post', 'landing'];
+  if (!validTypes.includes(type)) return res.status(400).json({ error: 'Invalid type' });
+  const { data, error } = await supabase
+    .from('site_pages')
+    .update({ type, manually_typed: true })
+    .eq('id', req.params.pageId)
+    .eq('site_id', req.params.siteId)
+    .select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ page: data });
 });
 
 module.exports = router;
