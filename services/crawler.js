@@ -102,6 +102,26 @@ function extractPageMetrics($, html, url, origin) {
     hasFooter:          $('footer').length > 0,
     isHttps:            url.startsWith('https://'),
     hasNoindex:         ($('meta[name="robots"]').attr('content') || '').toLowerCase().includes('noindex'),
+    hasArticleDate:     !!($('meta[property="article:published_time"]').attr('content') ||
+                           $('time[datetime]').length ||
+                           $('[class*="post-date"],[class*="entry-date"],[class*="publish"]').length),
+    hasAuthorMeta:      !!($('meta[name="author"]').attr('content') ||
+                           $('[rel="author"]').length ||
+                           $('[class*="author"],[class*="byline"]').length),
+    hasCtaButton:       !!($('a,button').filter((_, el) => {
+                          const text = ($(el).text() || '').toLowerCase();
+                          return /get started|sign up|free trial|book|schedule|contact|call now|get a quote|request|download/.test(text);
+                        }).length),
+    structuredDataTypes: (() => {
+      const types = [];
+      $('script[type="application/ld+json"]').each((_, el) => {
+        try {
+          const data = JSON.parse($(el).html());
+          if (data['@type']) types.push(Array.isArray(data['@type']) ? data['@type'] : [data['@type']]);
+        } catch {}
+      });
+      return types.flat();
+    })(),
   };
 }
 
