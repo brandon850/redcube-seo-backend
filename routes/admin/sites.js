@@ -135,6 +135,36 @@ router.post('/:id/audit', async (req, res) => {
   }
 });
 
+// GET /admin/sites/:id/keyword-groups
+router.get('/:id/keyword-groups', async (req, res) => {
+  const { data, error } = await supabase
+    .from('keyword_groups')
+    .select('*')
+    .eq('site_id', req.params.id)
+    .order('name', { ascending: true });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ groups: data || [] });
+});
+
+// POST /admin/sites/:id/keyword-groups
+router.post('/:id/keyword-groups', async (req, res) => {
+  const { name } = req.body;
+  if (!name) return res.status(400).json({ error: 'name required' });
+  const { data, error } = await supabase.from('keyword_groups').insert({
+    site_id:    req.params.id,
+    name:       name.trim(),
+    created_at: new Date().toISOString(),
+  }).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ group: data });
+});
+
+// DELETE /admin/sites/:id/keyword-groups/:groupId
+router.delete('/:id/keyword-groups/:groupId', async (req, res) => {
+  await supabase.from('keyword_groups').delete().eq('id', req.params.groupId);
+  res.json({ success: true });
+});
+
 module.exports = router;
 
 // GET /admin/sites/:id/checklist
@@ -168,11 +198,12 @@ router.post('/:id/keywords', async (req, res) => {
   const keywords = keyword.split(',').map(k => k.trim()).filter(Boolean);
 
   const inserts = keywords.map(kw => ({
-    site_id:    req.params.id,
-    keyword:    kw,
-    page_url:   page_url || null,
-    created_at: new Date().toISOString(),
-  }));
+  site_id:    req.params.id,
+  keyword:    kw,
+  page_url:   page_url || null,
+  group_id:   group_id || null,
+  created_at: new Date().toISOString(),
+}));
 
   const { data, error } = await supabase.from('site_keywords')
     .insert(inserts).select();
