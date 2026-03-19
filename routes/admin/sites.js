@@ -80,7 +80,8 @@ router.post('/:id/audit', async (req, res) => {
 
   try {
     console.log(`[admin-audit] Starting full crawl of ${site.url}`);
-    const [pages, aux] = await Promise.all([crawlSite(site.url, 100), checkAuxFiles(site.url)]);
+    const maxPages = site.max_pages || 100;
+    const [pages, aux] = await Promise.all([crawlSite(site.url, maxPages), checkAuxFiles(site.url)]);
     console.log(`[admin-audit] Crawled ${pages.length} pages`);
 
     const result = scoreSite(pages, aux, site.url);
@@ -117,7 +118,8 @@ router.post('/:id/audit', async (req, res) => {
 
     // Rebuild checklist
     await supabase.from('checklist_items').delete().eq('site_id', siteId).eq('auto_generated', true);
-    const checklistItems = generateChecklist(pages, aux, result, siteId);
+    const ignoredTypes = site.ignored_issue_types || [];
+    const checklistItems = generateChecklist(pages, aux, result, siteId, ignoredTypes);
     if (checklistItems.length) await supabase.from('checklist_items').insert(checklistItems);
 
     // Update site summary
