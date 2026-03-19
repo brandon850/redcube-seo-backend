@@ -283,4 +283,32 @@ router.delete('/:siteId', require('../../middleware/auth').requireAuth, async (r
   res.json({ success: true });
 });
 
+// GET /admin/gsc/properties/:siteId — list all GSC properties for this site's account
+router.get('/properties/:siteId', require('../../middleware/auth').requireAuth, async (req, res) => {
+  const { data: site } = await supabase
+    .from('managed_sites').select('*').eq('id', req.params.siteId).single();
+  if (!site || !site.gsc_connected) return res.status(400).json({ error: 'GSC not connected' });
+
+  try {
+    const accessToken = await getValidAccessToken(site);
+    const sitesRes = await fetch(GSC_API_BASE + '/sites', {
+      headers: { Authorization: 'Bearer ' + accessToken },
+    });
+    const data = await sitesRes.json();
+    res.json({ properties: (data.siteEntry || []).map(s => s.siteUrl) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /admin/gsc/property/:siteId — manually set the GSC property URL
+router.patch('/property/:siteId', require('../../middleware/auth').requireAuth, async (req, res) => {
+  const { property_url } = req.body;
+  if (!property_url) return res.status(400).json({ error: 'property_url required' });
+  await supabase.from('managed_sites')
+    .update({ gsc_property_url: property_url })
+    .eq('id', req.params.siteId);
+  res.json({ success: true });
+});
+
 module.exports = router;
