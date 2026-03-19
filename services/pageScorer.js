@@ -17,10 +17,27 @@ function scoreOnePage(m) {
   return Math.max(0, Math.min(100, s));
 }
 
-function detectPageType(url) {
+function detectPageType(url, metrics) {
   const path = url.toLowerCase();
-  if (/\/blog\/|\/post\/|\/article\/|\/news\/|\d{4}\/\d{2}\//.test(path)) return 'post';
-  if (/\/landing\/|\/lp\/|-lp\b|\/campaign\//.test(path))                  return 'landing';
+
+  // ── Structured data is the most reliable signal ──
+  if (metrics?.structuredDataTypes) {
+    const types = metrics.structuredDataTypes.map(t => t.toLowerCase());
+    if (types.some(t => t.includes('blogposting') || t.includes('article') || t.includes('newsarticle'))) return 'post';
+    if (types.some(t => t.includes('landingpage') || t.includes('webpage') && path.includes('lp'))) return 'landing';
+  }
+
+  // ── Meta tag signals ──
+  if (metrics?.hasArticleDate || metrics?.hasAuthorMeta) return 'post';
+
+  // ── URL pattern signals ──
+  if (/\/blog\/|\/post\/|\/posts\/|\/article\/|\/articles\/|\/news\/|\/insights\/|\/resources\/|\d{4}\/\d{2}\/\d{2}\/|\d{4}\/\d{2}\//.test(path)) return 'post';
+  if (/\/landing\/|\/lp\/|[_-]lp[_\/\-]|\/campaign\/|\/promo\/|\/offer\/|\/demo\/|\/trial\/|\/free\//.test(path)) return 'landing';
+
+  // ── Content signals ──
+  if (metrics?.wordCount > 600 && metrics?.hasAuthorMeta) return 'post';
+  if (metrics?.wordCount < 400 && metrics?.hasCtaButton) return 'landing';
+
   return 'page';
 }
 
