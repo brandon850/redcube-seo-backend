@@ -163,14 +163,21 @@ router.get('/:id/keywords', async (req, res) => {
 router.post('/:id/keywords', async (req, res) => {
   const { keyword, page_url } = req.body;
   if (!keyword) return res.status(400).json({ error: 'keyword required' });
-  const { data, error } = await supabase.from('site_keywords').insert({
+
+  // Support comma-separated list
+  const keywords = keyword.split(',').map(k => k.trim()).filter(Boolean);
+
+  const inserts = keywords.map(kw => ({
     site_id:    req.params.id,
-    keyword,
+    keyword:    kw,
     page_url:   page_url || null,
     created_at: new Date().toISOString(),
-  }).select().single();
+  }));
+
+  const { data, error } = await supabase.from('site_keywords')
+    .insert(inserts).select();
   if (error) return res.status(500).json({ error: error.message });
-  res.json({ keyword: data });
+  res.json({ keywords: data });
 });
 
 // GET /admin/sites/:id/content
