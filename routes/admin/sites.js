@@ -167,6 +167,17 @@ router.delete('/:id/keyword-groups/:groupId', async (req, res) => {
   res.json({ success: true });
 });
 
+// PATCH /admin/sites/:id/settings
+router.patch('/:id/settings', async (req, res) => {
+  const { max_pages } = req.body;
+  const updates = {};
+  if (max_pages !== undefined) updates.max_pages = Math.min(500, Math.max(10, parseInt(max_pages)));
+  const { data, error } = await supabase.from('managed_sites')
+    .update(updates).eq('id', req.params.id).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ site: data });
+});
+
 module.exports = router;
 
 // GET /admin/sites/:id/checklist
