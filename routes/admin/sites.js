@@ -98,13 +98,25 @@ router.post('/:id/audit', async (req, res) => {
     });
 
     // Rebuild page records
+
+    // Preserve manually set types before wiping
+    const { data: existingPages } = await supabase
+      .from('site_pages')
+      .select('url, type, manually_typed')
+      .eq('site_id', siteId)
+      .eq('manually_typed', true);
+    
+    const manualOverrides = {};
+    (existingPages || []).forEach(p => { manualOverrides[p.url] = p.type; });
+    
     await supabase.from('site_pages').delete().eq('site_id', siteId);
+
     const pageInserts = pages.filter(p => p.ok && p.metrics).map(p => ({
       site_id:      siteId,
       url:          p.url,
       title:        p.metrics.title || '',
       score:        scoreOnePage(p.metrics),
-      type:         detectPageType(p.url, p.metrics),
+      type:         p.metrics.manually_typed ? undefined : detectPageType(p.url, p.metrics),
       word_count:   p.metrics.wordCount || 0,
       h1_text:      p.metrics.h1Text || '',
       has_meta:     p.metrics.metaDescLen > 20,
@@ -114,7 +126,15 @@ router.post('/:id/audit', async (req, res) => {
       issues:       getPageIssues(p.metrics),
       last_crawled: new Date().toISOString(),
     }));
-    if (pageInserts.length) await supabase.from('site_pages').insert(pageInserts);
+    
+    // Apply manual overrides back to fresh inserts
+    const finalInserts = pageInserts.map(p => ({
+      ...p,
+      type:           manualOverrides[p.url] || p.type,
+      manually_typed: !!manualOverrides[p.url],
+    }));
+    
+    if (finalInserts.length) await supabase.from('site_pages').insert(finalInserts);
 
     // Rebuild checklist
     await supabase.from('checklist_items').delete().eq('site_id', siteId).eq('auto_generated', true);
