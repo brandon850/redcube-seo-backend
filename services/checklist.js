@@ -66,7 +66,7 @@ function generateChecklist(pages, aux, result, siteId, ignoredTypes = []) {
   if (!crawled.some(p => p.m.hasGoogleAnalytics))
     add('Install Google Analytics or Google Tag Manager to track visitors', 'Speed', 'high');
 
-  return items.slice(0, 100);
+  return items.slice(0, 1000);
 }
 
 module.exports = { generateChecklist };
