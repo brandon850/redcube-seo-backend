@@ -1,8 +1,11 @@
-function generateChecklist(pages, aux, result, siteId) {
+function generateChecklist(pages, aux, result, siteId, ignoredTypes = []) {
   const items = [];
   let order = 0;
 
   const add = (text, category, priority, pageUrl = null) => {
+    // Skip if this issue type was previously ignored by the user
+    const fingerprint = (category + ':' + text.slice(0, 60)).toLowerCase();
+    if (ignoredTypes.some(ig => fingerprint.startsWith(ig))) return;
     items.push({
       site_id:        siteId,
       text,
