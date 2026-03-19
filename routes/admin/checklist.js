@@ -24,4 +24,15 @@ router.patch('/:id', async (req, res) => {
   res.json({ item: data });
 });
 
+// DELETE /admin/checklist/completed/:siteId — clear all done items for a site
+router.delete('/completed/:siteId', async (req, res) => {
+  const { error } = await supabase
+    .from('checklist_items')
+    .delete()
+    .eq('site_id', req.params.siteId)
+    .eq('done', true);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true });
+});
+
 module.exports = router;
