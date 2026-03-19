@@ -57,11 +57,23 @@ router.get('/callback', async (req, res) => {
     });
 
     const tokens = await tokenRes.json();
+
+    // If Google didn't return a refresh token, check if we already have one stored
     if (!tokens.refresh_token) {
-      return res.redirect(
-        process.env.PUBLIC_RESULTS_BASE_URL?.replace('/results', '') +
-        '/dashboard?gsc_error=no_refresh_token'
-      );
+      const { data: existingSite } = await supabase
+        .from('managed_sites')
+        .select('gsc_refresh_token')
+        .eq('id', siteId)
+        .single();
+    
+      if (existingSite?.gsc_refresh_token) {
+        tokens.refresh_token = existingSite.gsc_refresh_token;
+      } else {
+        return res.redirect(
+          process.env.PUBLIC_RESULTS_BASE_URL?.replace('/results', '') +
+          '/dashboard?gsc_error=no_refresh_token'
+        );
+      }
     }
 
     // Get list of GSC properties to auto-detect which one matches the site
