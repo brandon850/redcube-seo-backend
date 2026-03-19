@@ -10,6 +10,7 @@ const reportsRouter    = require('./reports');
 const teamRouter       = require('./team');
 const gscRouter        = require('./gsc');
 const pagespeedRouter  = require('./pagespeed');
+const leadsRouter      = require('./leads');
 
 const router = express.Router();
 
@@ -26,5 +27,6 @@ router.use('/content',    contentRouter);
 router.use('/reports',    reportsRouter);
 router.use('/team',       teamRouter);
 router.use('/pagespeed',  pagespeedRouter);
+router.use('/leads',      leadsRouter);
 
 module.exports = router;
