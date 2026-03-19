@@ -5,6 +5,7 @@ const { crawlSite, checkAuxFiles } = require('../../services/crawler');
 const { scoreSite }               = require('../../services/scorer');
 const { scoreOnePage, detectPageType, getPageIssues } = require('../../services/pageScorer');
 const { generateChecklist }       = require('../../services/checklist');
+const { getPageSpeedData }        = require('../../services/pagespeed');
 
 const router = express.Router();
 
@@ -80,8 +81,7 @@ router.post('/:id/audit', async (req, res) => {
 
   try {
     console.log(`[admin-audit] Starting full crawl of ${site.url}`);
-    const maxPages = site.max_pages || 100;
-    const [pages, aux] = await Promise.all([crawlSite(site.url, maxPages), checkAuxFiles(site.url)]);
+    const [pages, aux] = await Promise.all([crawlSite(site.url, 100), checkAuxFiles(site.url)]);
     console.log(`[admin-audit] Crawled ${pages.length} pages`);
 
     const result = scoreSite(pages, aux, site.url);
@@ -98,25 +98,13 @@ router.post('/:id/audit', async (req, res) => {
     });
 
     // Rebuild page records
-
-    // Preserve manually set types before wiping
-    const { data: existingPages } = await supabase
-      .from('site_pages')
-      .select('url, type, manually_typed')
-      .eq('site_id', siteId)
-      .eq('manually_typed', true);
-    
-    const manualOverrides = {};
-    (existingPages || []).forEach(p => { manualOverrides[p.url] = p.type; });
-    
     await supabase.from('site_pages').delete().eq('site_id', siteId);
-
     const pageInserts = pages.filter(p => p.ok && p.metrics).map(p => ({
       site_id:      siteId,
       url:          p.url,
       title:        p.metrics.title || '',
       score:        scoreOnePage(p.metrics),
-      type:         p.metrics.manually_typed ? undefined : detectPageType(p.url, p.metrics),
+      type:         detectPageType(p.url),
       word_count:   p.metrics.wordCount || 0,
       h1_text:      p.metrics.h1Text || '',
       has_meta:     p.metrics.metaDescLen > 20,
@@ -126,20 +114,30 @@ router.post('/:id/audit', async (req, res) => {
       issues:       getPageIssues(p.metrics),
       last_crawled: new Date().toISOString(),
     }));
-    
-    // Apply manual overrides back to fresh inserts
-    const finalInserts = pageInserts.map(p => ({
-      ...p,
-      type:           manualOverrides[p.url] || p.type,
-      manually_typed: !!manualOverrides[p.url],
-    }));
-    
-    if (finalInserts.length) await supabase.from('site_pages').insert(finalInserts);
+    if (pageInserts.length) await supabase.from('site_pages').insert(pageInserts);
+
+    // Run PageSpeed Insights on homepage only
+    try {
+      console.log(`[audit] Fetching PageSpeed data for ${site.url}`);
+      const psi = await getPageSpeedData(site.url);
+      const { data: homePage } = await supabase
+        .from('site_pages').select('id').eq('site_id', siteId)
+        .order('created_at', { ascending: true }).limit(1).single();
+      if (homePage) {
+        await supabase.from('site_pages').update({
+          psi_mobile:     psi.mobile,
+          psi_desktop:    psi.desktop,
+          psi_fetched_at: psi.fetched_at,
+        }).eq('id', homePage.id);
+      }
+      console.log(`[audit] PSI scores — mobile: ${psi.mobile?.performance_score}, desktop: ${psi.desktop?.performance_score}`);
+    } catch (psiErr) {
+      console.warn('[audit] PSI fetch failed (non-fatal):', psiErr.message);
+    }
 
     // Rebuild checklist
     await supabase.from('checklist_items').delete().eq('site_id', siteId).eq('auto_generated', true);
-    const ignoredTypes = site.ignored_issue_types || [];
-    const checklistItems = generateChecklist(pages, aux, result, siteId, ignoredTypes);
+    const checklistItems = generateChecklist(pages, aux, result, siteId);
     if (checklistItems.length) await supabase.from('checklist_items').insert(checklistItems);
 
     // Update site summary
@@ -155,62 +153,6 @@ router.post('/:id/audit', async (req, res) => {
     console.error('[admin-audit]', err);
     res.status(500).json({ error: err.message });
   }
-});
-
-// GET /admin/sites/:id/keyword-groups
-router.get('/:id/keyword-groups', async (req, res) => {
-  const { data, error } = await supabase
-    .from('keyword_groups')
-    .select('*')
-    .eq('site_id', req.params.id)
-    .order('name', { ascending: true });
-  if (error) return res.status(500).json({ error: error.message });
-  res.json({ groups: data || [] });
-});
-
-// POST /admin/sites/:id/keyword-groups
-router.post('/:id/keyword-groups', async (req, res) => {
-  const { name } = req.body;
-  if (!name) return res.status(400).json({ error: 'name required' });
-  const { data, error } = await supabase.from('keyword_groups').insert({
-    site_id:    req.params.id,
-    name:       name.trim(),
-    created_at: new Date().toISOString(),
-  }).select().single();
-  if (error) return res.status(500).json({ error: error.message });
-  res.json({ group: data });
-});
-
-// DELETE /admin/sites/:id/keyword-groups/:groupId
-router.delete('/:id/keyword-groups/:groupId', async (req, res) => {
-  await supabase.from('keyword_groups').delete().eq('id', req.params.groupId);
-  res.json({ success: true });
-});
-
-// PATCH /admin/sites/:id/settings
-router.patch('/:id/settings', async (req, res) => {
-  const { max_pages } = req.body;
-  const updates = {};
-  if (max_pages !== undefined) updates.max_pages = Math.min(500, Math.max(10, parseInt(max_pages)));
-  const { data, error } = await supabase.from('managed_sites')
-    .update(updates).eq('id', req.params.id).select().single();
-  if (error) return res.status(500).json({ error: error.message });
-  res.json({ site: data });
-});
-
-// PATCH /admin/sites/:siteId/pages/:pageId — manual overrides
-router.patch('/:siteId/pages/:pageId', async (req, res) => {
-  const { type } = req.body;
-  const validTypes = ['page', 'post', 'landing'];
-  if (!validTypes.includes(type)) return res.status(400).json({ error: 'Invalid type' });
-  const { data, error } = await supabase
-    .from('site_pages')
-    .update({ type, manually_typed: true })
-    .eq('id', req.params.pageId)
-    .eq('site_id', req.params.siteId)
-    .select().single();
-  if (error) return res.status(500).json({ error: error.message });
-  res.json({ page: data });
 });
 
 module.exports = router;
@@ -239,24 +181,16 @@ router.get('/:id/keywords', async (req, res) => {
 
 // POST /admin/sites/:id/keywords
 router.post('/:id/keywords', async (req, res) => {
-  const { keyword, page_url, group_id } = req.body;
+  const { keyword, page_url } = req.body;
   if (!keyword) return res.status(400).json({ error: 'keyword required' });
-
-  // Support comma-separated list
-  const keywords = keyword.split(',').map(k => k.trim()).filter(Boolean);
-
-  const inserts = keywords.map(kw => ({
-  site_id:    req.params.id,
-  keyword:    kw,
-  page_url:   page_url || null,
-  group_id:   group_id || null,
-  created_at: new Date().toISOString(),
-}));
-
-  const { data, error } = await supabase.from('site_keywords')
-    .insert(inserts).select();
+  const { data, error } = await supabase.from('site_keywords').insert({
+    site_id:    req.params.id,
+    keyword,
+    page_url:   page_url || null,
+    created_at: new Date().toISOString(),
+  }).select().single();
   if (error) return res.status(500).json({ error: error.message });
-  res.json({ keywords: data });
+  res.json({ keyword: data });
 });
 
 // GET /admin/sites/:id/content
