@@ -1,6 +1,5 @@
 const express  = require('express');
 const supabase = require('../../config/supabase');
-const { requireAuth } = require('../../middleware/auth');
 
 const router = express.Router();
 
@@ -11,7 +10,7 @@ const GSC_API_BASE      = 'https://www.googleapis.com/webmasters/v3';
 // ── Build OAuth URL ──────────────────────────────
 // GET /admin/gsc/auth-url?site_id=xxx
 // Returns the Google OAuth URL to open in browser
-router.get('/auth-url', requireAuth, (req, res) => {
+router.get('/auth-url', require('../../middleware/auth').requireAuth, (req, res) => {
   const { site_id } = req.query;
   if (!site_id) return res.status(400).json({ error: 'site_id required' });
 
@@ -146,7 +145,7 @@ async function getValidAccessToken(site) {
 // ── Sync keyword data from GSC ───────────────────
 // POST /admin/gsc/sync/:siteId
 // Pulls last 90 days of query data and updates keyword positions
-router.post('/sync/:siteId', requireAuth, async (req, res) => {
+router.post('/sync/:siteId', require('../../middleware/auth').requireAuth, async (req, res) => {
   const { siteId } = req.params;
 
   const { data: site } = await supabase
@@ -261,7 +260,7 @@ router.post('/sync/:siteId', requireAuth, async (req, res) => {
 
 // ── Disconnect GSC ───────────────────────────────
 // DELETE /admin/gsc/:siteId
-router.delete('/:siteId', requireAuth, async (req, res) => {
+router.delete('/:siteId', require('../../middleware/auth').requireAuth, async (req, res) => {
   await supabase.from('managed_sites').update({
     gsc_connected:     false,
     gsc_property_url:  null,
