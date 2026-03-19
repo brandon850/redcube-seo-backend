@@ -191,7 +191,7 @@ router.get('/:id/keywords', async (req, res) => {
 
 // POST /admin/sites/:id/keywords
 router.post('/:id/keywords', async (req, res) => {
-  const { keyword, page_url } = req.body;
+  const { keyword, page_url, group_id } = req.body;
   if (!keyword) return res.status(400).json({ error: 'keyword required' });
 
   // Support comma-separated list
