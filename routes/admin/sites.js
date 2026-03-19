@@ -155,6 +155,65 @@ router.post('/:id/audit', async (req, res) => {
   }
 });
 
+
+// ── Keyword Groups ───────────────────────────────
+
+// GET /admin/sites/:id/keyword-groups
+router.get('/:id/keyword-groups', async (req, res) => {
+  const { data, error } = await supabase
+    .from('keyword_groups')
+    .select('*')
+    .eq('site_id', req.params.id)
+    .order('name', { ascending: true });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ groups: data || [] });
+});
+
+// POST /admin/sites/:id/keyword-groups
+router.post('/:id/keyword-groups', async (req, res) => {
+  const { name } = req.body;
+  if (!name) return res.status(400).json({ error: 'name required' });
+  const { data, error } = await supabase.from('keyword_groups').insert({
+    site_id:    req.params.id,
+    name:       name.trim(),
+    created_at: new Date().toISOString(),
+  }).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ group: data });
+});
+
+// DELETE /admin/sites/:id/keyword-groups/:groupId
+router.delete('/:id/keyword-groups/:groupId', async (req, res) => {
+  await supabase.from('keyword_groups').delete().eq('id', req.params.groupId).eq('site_id', req.params.id);
+  res.json({ success: true });
+});
+
+// PATCH /admin/sites/:id/pages/:pageId — manual page type override
+router.patch('/:id/pages/:pageId', async (req, res) => {
+  const { type } = req.body;
+  const validTypes = ['page', 'post', 'landing'];
+  if (!validTypes.includes(type)) return res.status(400).json({ error: 'Invalid type' });
+  const { data, error } = await supabase
+    .from('site_pages')
+    .update({ type, manually_typed: true })
+    .eq('id', req.params.pageId)
+    .eq('site_id', req.params.id)
+    .select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ page: data });
+});
+
+// PATCH /admin/sites/:id/settings — update max_pages etc
+router.patch('/:id/settings', async (req, res) => {
+  const { max_pages } = req.body;
+  const updates = {};
+  if (max_pages !== undefined) updates.max_pages = Math.min(500, Math.max(10, parseInt(max_pages)));
+  const { data, error } = await supabase
+    .from('managed_sites').update(updates).eq('id', req.params.id).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ site: data });
+});
+
 module.exports = router;
 
 // GET /admin/sites/:id/checklist
