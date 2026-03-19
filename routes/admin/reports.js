@@ -13,4 +13,14 @@ router.get('/', async (req, res) => {
   res.json({ reports: data || [] });
 });
 
+// DELETE /admin/reports/:id
+router.delete('/:id', async (req, res) => {
+  const { id } = req.params;
+  await Promise.all([
+    supabase.from('client_reports').delete().eq('id', id),
+    supabase.from('seo_reports').delete().eq('id', id),
+  ]);
+  res.json({ success: true });
+});
+
 module.exports = router;
