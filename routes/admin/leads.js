@@ -30,4 +30,16 @@ router.patch('/:id', async (req, res) => {
   res.json({ lead: data });
 });
 
+// DELETE /admin/leads/:id — only callable once closed (enforced on frontend, verified here)
+router.delete('/:id', async (req, res) => {
+  // Verify it's actually closed before deleting
+  const { data: lead } = await supabase
+    .from('seo_reports').select('lead_status').eq('id', req.params.id).single();
+  if (!lead) return res.status(404).json({ error: 'Lead not found' });
+  if (lead.lead_status !== 'closed') return res.status(400).json({ error: 'Lead must be marked as closed before deleting' });
+
+  await supabase.from('seo_reports').delete().eq('id', req.params.id);
+  res.json({ success: true });
+});
+
 module.exports = router;
